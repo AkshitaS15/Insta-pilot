@@ -12,6 +12,13 @@ type Variables = { userId: string };
 
 export const instagramRouter = new Hono<{ Variables: Variables }>();
 
+// Public: check if Instagram credentials are configured
+instagramRouter.get("/status", (c) => {
+  const appId = process.env.INSTAGRAM_APP_ID;
+  const configured = !!(appId && appId !== "placeholder_add_later" && appId.length > 5);
+  return c.json({ data: { configured } });
+});
+
 // Middleware: require auth
 instagramRouter.use("*", async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
