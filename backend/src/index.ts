@@ -59,6 +59,8 @@ app.use("*", async (c, next) => {
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 // Auth handler - must use app.all with * wildcard for Hono v4 compatibility
+// Routes: instagram, campaigns, content, notifications, publish
+// Updated: env reads from file
 app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 
 // Protected API example

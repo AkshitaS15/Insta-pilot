@@ -37,6 +37,6 @@ if [[ "${ENVIRONMENT}" == "production" ]]; then
   echo "Starting server in production mode..."
   exec bun src/index.ts
 else
-  echo "Starting server in dev mode with hot reload..."
-  exec bun --hot src/index.ts
+  echo "Starting server in dev mode..."
+  exec bun --watch src/index.ts
 fi

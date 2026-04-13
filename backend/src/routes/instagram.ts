@@ -1,12 +1,41 @@
 import { Hono } from "hono";
 import { auth } from "../auth";
 import { prisma } from "../db";
+import { readFileSync } from "fs";
+import { join } from "path";
 
-const INSTAGRAM_APP_ID = process.env.INSTAGRAM_APP_ID;
-const INSTAGRAM_APP_SECRET = process.env.INSTAGRAM_APP_SECRET;
-const INSTAGRAM_REDIRECT_URI = process.env.INSTAGRAM_REDIRECT_URI;
 const SCOPES =
   "instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list";
+
+// Read .env file directly so credentials are always fresh without a restart
+function readEnvFile(): Record<string, string> {
+  try {
+    const content = readFileSync(join(process.cwd(), ".env"), "utf-8");
+    const result: Record<string, string> = {};
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx < 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+      result[key] = val;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function igEnv() {
+  const file = readEnvFile();
+  return {
+    appId: file.INSTAGRAM_APP_ID || process.env.INSTAGRAM_APP_ID,
+    appSecret: file.INSTAGRAM_APP_SECRET || process.env.INSTAGRAM_APP_SECRET,
+    redirectUri: file.INSTAGRAM_REDIRECT_URI || process.env.INSTAGRAM_REDIRECT_URI,
+    frontendUrl: process.env.FRONTEND_URL || "http://localhost:8000",
+  };
+}
 
 type Variables = { userId: string };
 
@@ -14,7 +43,7 @@ export const instagramRouter = new Hono<{ Variables: Variables }>();
 
 // Public: check if Instagram credentials are configured
 instagramRouter.get("/status", (c) => {
-  const appId = process.env.INSTAGRAM_APP_ID;
+  const { appId } = igEnv();
   const configured = !!(appId && appId !== "placeholder_add_later" && appId.length > 5);
   return c.json({ data: { configured } });
 });
@@ -23,24 +52,23 @@ instagramRouter.get("/status", (c) => {
 instagramRouter.use("*", async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session)
-    return c.json(
-      { error: { message: "Unauthorized", code: "UNAUTHORIZED" } },
-      401
-    );
+    return c.json({ error: { message: "Unauthorized", code: "UNAUTHORIZED" } }, 401);
   c.set("userId", session.user.id);
   await next();
 });
 
 // Initiate OAuth
 instagramRouter.get("/auth", async (c) => {
+  const { appId, redirectUri } = igEnv();
   const userId = c.get("userId");
   const state = Buffer.from(JSON.stringify({ userId })).toString("base64");
-  const url = `https://www.facebook.com/dialog/oauth?client_id=${INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(INSTAGRAM_REDIRECT_URI!)}&scope=${SCOPES}&response_type=code&state=${state}`;
+  const url = `https://www.facebook.com/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri!)}&scope=${SCOPES}&response_type=code&state=${state}`;
   return c.redirect(url);
 });
 
 // OAuth callback
 instagramRouter.get("/callback", async (c) => {
+  const { appId, appSecret, redirectUri, frontendUrl } = igEnv();
   const code = c.req.query("code");
   const state = c.req.query("state");
   if (!code || !state)
@@ -53,17 +81,13 @@ instagramRouter.get("/callback", async (c) => {
     return c.json({ error: { message: "Invalid state" } }, 400);
   }
 
-  // Check if Instagram credentials are configured
-  if (!INSTAGRAM_APP_ID || INSTAGRAM_APP_ID === "placeholder_add_later") {
-    return c.redirect(
-      `${process.env.FRONTEND_URL || "http://localhost:8000"}/connect?error=credentials_not_configured`
-    );
+  if (!appId || appId === "placeholder_add_later") {
+    return c.redirect(`${frontendUrl}/connect?error=credentials_not_configured`);
   }
 
   try {
-    // Exchange code for token
     const tokenRes = await fetch(
-      `https://graph.facebook.com/v18.0/oauth/access_token?client_id=${INSTAGRAM_APP_ID}&client_secret=${INSTAGRAM_APP_SECRET}&redirect_uri=${encodeURIComponent(INSTAGRAM_REDIRECT_URI!)}&code=${code}`
+      `https://graph.facebook.com/v18.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri!)}&code=${code}`
     );
     const tokenData = (await tokenRes.json()) as {
       access_token?: string;
@@ -73,7 +97,6 @@ instagramRouter.get("/callback", async (c) => {
 
     const accessToken = tokenData.access_token!;
 
-    // Get Facebook pages
     const pagesRes = await fetch(
       `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
     );
@@ -83,13 +106,12 @@ instagramRouter.get("/callback", async (c) => {
     };
     if (!pagesData.data?.length)
       throw new Error(
-        "No Facebook Pages found. Please create a Facebook Page connected to your Instagram account."
+        "No Facebook Pages found. Please connect your Instagram to a Facebook Page first."
       );
 
     const page = pagesData.data[0]!;
     const pageAccessToken = page.access_token;
 
-    // Get Instagram Business Account
     const igRes = await fetch(
       `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account&access_token=${pageAccessToken}`
     );
@@ -104,7 +126,6 @@ instagramRouter.get("/callback", async (c) => {
 
     const igUserId = igData.instagram_business_account.id;
 
-    // Get IG user info
     const igUserRes = await fetch(
       `https://graph.facebook.com/v18.0/${igUserId}?fields=username,profile_picture_url&access_token=${pageAccessToken}`
     );
@@ -114,52 +135,35 @@ instagramRouter.get("/callback", async (c) => {
       error?: { message: string };
     };
 
-    // Upsert Instagram account
     await prisma.instagramAccount.upsert({
       where: { igUserId },
       create: {
-        userId,
-        igUserId,
-        username: igUser.username,
+        userId, igUserId, username: igUser.username,
         profilePicUrl: igUser.profile_picture_url ?? null,
-        accessToken: pageAccessToken,
-        pageId: page.id,
-        pageName: page.name,
+        accessToken: pageAccessToken, pageId: page.id, pageName: page.name,
       },
       update: {
-        userId,
-        username: igUser.username,
+        userId, username: igUser.username,
         profilePicUrl: igUser.profile_picture_url ?? null,
-        accessToken: pageAccessToken,
-        pageId: page.id,
-        pageName: page.name,
+        accessToken: pageAccessToken, pageId: page.id, pageName: page.name,
       },
     });
 
-    return c.redirect(
-      `${process.env.FRONTEND_URL || "http://localhost:8000"}/connect?success=true`
-    );
+    return c.redirect(`${frontendUrl}/connect?success=true`);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return c.redirect(
-      `${process.env.FRONTEND_URL || "http://localhost:8000"}/connect?error=${encodeURIComponent(message)}`
-    );
+    return c.redirect(`${frontendUrl}/connect?error=${encodeURIComponent(message)}`);
   }
 });
 
 // List connected accounts
 instagramRouter.get("/accounts", async (c) => {
   const userId = c.get("userId");
-  const accounts = await prisma.instagramAccount.findMany({
-    where: { userId },
-  });
+  const accounts = await prisma.instagramAccount.findMany({ where: { userId } });
   return c.json({
     data: accounts.map((a) => ({
-      id: a.id,
-      igUserId: a.igUserId,
-      username: a.username,
-      profilePicUrl: a.profilePicUrl,
-      pageName: a.pageName,
+      id: a.id, igUserId: a.igUserId, username: a.username,
+      profilePicUrl: a.profilePicUrl, pageName: a.pageName,
       createdAt: a.createdAt.toISOString(),
     })),
   });
