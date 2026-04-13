@@ -28,12 +28,28 @@ export default function Connect() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (searchParams.get("success") === "true") {
-      toast.success("Instagram account connected successfully!");
-    }
+    const success = searchParams.get("success");
     const error = searchParams.get("error");
-    if (error) {
-      toast.error(decodeURIComponent(error));
+
+    if (window.opener) {
+      // We're in the OAuth popup — communicate result back to opener and close
+      if (success === "true") {
+        window.opener.postMessage({ type: "instagram-oauth-success" }, "*");
+      } else if (error) {
+        window.opener.postMessage({ type: "instagram-oauth-error", error: decodeURIComponent(error) }, "*");
+      }
+      if (success || error) {
+        window.close();
+        return;
+      }
+    } else {
+      // Normal page load (not in popup)
+      if (success === "true") {
+        toast.success("Instagram account connected successfully!");
+      }
+      if (error) {
+        toast.error(decodeURIComponent(error));
+      }
     }
   }, [searchParams]);
 
@@ -59,7 +75,25 @@ export default function Connect() {
   });
 
   const handleConnect = () => {
-    window.location.href = `${BACKEND_URL}/api/instagram/auth`;
+    const url = `${BACKEND_URL}/api/instagram/auth`;
+    const popup = window.open(url, "instagram-oauth", "width=600,height=700,scrollbars=yes,resizable=yes");
+    if (!popup) {
+      // Fallback if popup blocked
+      window.location.href = url;
+      return;
+    }
+    // Listen for message from popup when OAuth completes
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "instagram-oauth-success") {
+        toast.success("Instagram account connected successfully!");
+        queryClient.invalidateQueries({ queryKey: ["instagram-accounts"] });
+        window.removeEventListener("message", handler);
+      } else if (event.data?.type === "instagram-oauth-error") {
+        toast.error(event.data.error || "Failed to connect Instagram.");
+        window.removeEventListener("message", handler);
+      }
+    };
+    window.addEventListener("message", handler);
   };
 
   const configured = statusData?.configured ?? false;
