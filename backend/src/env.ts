@@ -8,6 +8,13 @@ const envSchema = z.object({
   // Server Configuration
   PORT: z.string().optional().default("3000"),
   NODE_ENV: z.string().optional(),
+  DATABASE_URL: z.string().default("file:./dev.db"),
+  BETTER_AUTH_SECRET: z.string().min(1, "BETTER_AUTH_SECRET is required"),
+  BACKEND_URL: z.string().optional().default("http://localhost:3000"),
+  INSTAGRAM_APP_ID: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
+  INSTAGRAM_REDIRECT_URI: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
 });
 
 /**
@@ -16,15 +23,17 @@ const envSchema = z.object({
 function validateEnv() {
   try {
     const parsed = envSchema.parse(process.env);
-    console.log("✅ Environment variables validated successfully");
+    console.log("Environment variables validated successfully");
     return parsed;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error("❌ Environment variable validation failed:");
-      error.issues.forEach((err: any) => {
+      console.error("Environment variable validation failed:");
+      error.issues.forEach((err: z.ZodIssue) => {
         console.error(`  - ${err.path.join(".")}: ${err.message}`);
       });
-      console.error("\nPlease check your .env file and ensure all required variables are set.");
+      console.error(
+        "\nPlease check your .env file and ensure all required variables are set."
+      );
       process.exit(1);
     }
     throw error;

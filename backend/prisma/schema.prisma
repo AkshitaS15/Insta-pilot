@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  instagramAccounts InstagramAccount[]
+  campaigns         Campaign[]
+  contentItems      ContentItem[]
+  notifications     Notification[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model InstagramAccount {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  igUserId      String    @unique
+  username      String
+  profilePicUrl String?
+  accessToken   String
+  tokenExpiry   DateTime?
+  pageId        String?
+  pageName      String?
+  createdAt     DateTime  @default(now())
+  campaigns     Campaign[]
+}
+
+model Campaign {
+  id                  String           @id @default(cuid())
+  userId              String
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccountId  String
+  instagramAccount    InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  name                String
+  genres              String           // JSON array: ["humanic","animated","ai_generated","satisfying","nature","motivational","comedy","fashion","food","travel"]
+  postTypes           String           // JSON array: ["POST", "REEL"]
+  contentSource       String           // JSON array: ["AI", "UPLOAD"]
+  frequency           String           // "DAILY" | "3X_WEEK" | "WEEKLY" | "CUSTOM"
+  frequencyDays       String?          // JSON array of day numbers [0,1,2,3,4,5,6] for CUSTOM
+  postTime            String           // "HH:MM" e.g. "09:00"
+  isActive            Boolean          @default(true)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  contentItems        ContentItem[]
+}
+
+model ContentItem {
+  id            String    @id @default(cuid())
+  campaignId    String
+  campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageUrl      String?
+  videoUrl      String?
+  caption       String
+  hashtags      String?
+  genre         String
+  postType      String    // "POST" | "REEL"
+  contentSource String    // "AI" | "UPLOAD"
+  status        String    @default("DRAFT") // "DRAFT" | "PENDING_PREVIEW" | "SCHEDULED" | "POSTED" | "FAILED"
+  isFirstPost   Boolean   @default(false)
+  scheduledAt   DateTime?
+  postedAt      DateTime?
+  igMediaId     String?
+  errorMsg      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  notifications Notification[]
+}
+
+model Notification {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItemId String?
+  contentItem   ContentItem? @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+  message       String
+  type          String       // "PREVIEW_REQUIRED" | "POST_PUBLISHED" | "POST_FAILED" | "CAMPAIGN_INFO"
+  read          Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+}
