@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: vibecode-backend
+    env: node
+    buildCommand: "bun install && bunx prisma generate"
+    startCommand: "bun run start"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: PORT
+        value: 3000
