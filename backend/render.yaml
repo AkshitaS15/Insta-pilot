@@ -4,9 +4,11 @@ services:
     env: node
     rootDir: backend
     plan: free
-    buildCommand: "npm install -g bun && bun install && bunx prisma generate"
+    buildCommand: "bun install && bunx prisma generate"
     startCommand: "bun run start"
     envVars:
+      - key: BUN_VERSION
+        value: "1.2.2"
       - key: DATABASE_URL
         sync: false
       - key: TURSO_AUTH_TOKEN
