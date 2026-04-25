@@ -2,6 +2,7 @@ services:
   - type: web
     name: vibecode-backend
     env: node
+    plan: free
     buildCommand: "bun install && bunx prisma generate"
     startCommand: "bun run start"
     envVars:
